@@ -501,7 +501,7 @@ function ResultPanel({
         <Frame label="Input · 10 m" src={`/api/job/${job.job_id}/thumbnail?kind=input`} />
         <Frame
           label={`Output · ${m?.output_res_m ?? "?"} m`}
-          src={`/api/job/${job.job_id}/thumbnail?kind= sr`}
+          src={`/api/job/${job.job_id}/thumbnail?kind=sr`}
           accent
         />
       </div>

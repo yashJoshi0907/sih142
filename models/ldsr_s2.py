@@ -104,9 +104,32 @@ def run_ldsr_s2(input_path: str, output_path: str) -> dict:
         }
 
     except Exception as e:
-        print(f"[LDSR-S2] Failed ({e}), falling back to bicubic")
+        # The ESA OpenSR diffusion stack is unavailable (opensr-utils is missing
+        # its `opensr_model` dependency). Rather than degrading to a plain
+        # bicubic resample — which is visually indistinguishable from the
+        # input — fall back to the pretrained DSen2 network (×2, real SR)
+        # followed by a bicubic ×2 so the product still carries genuine
+        # learned detail at the advertised ×4 scale.
+        print(f"[LDSR-S2] Failed ({e}); falling back to DSen2 ×2 + bicubic ×2")
+        from .dsen2 import run_dsen2
         from .bicubic import run_bicubic
-        result = run_bicubic(input_path, output_path, scale_factor=4)
-        result["fallback"] = True
-        result["fallback_reason"] = str(e)
-        return result
+        import os
+
+        tmp_path = output_path + ".dsen2_tmp.tif"
+        try:
+            r1 = run_dsen2(input_path, tmp_path)
+            if r1.get("fallback"):
+                raise RuntimeError(f"DSen2 fallback also failed: {r1.get('fallback_reason')}")
+            result = run_bicubic(tmp_path, output_path, scale_factor=2)
+            result["model"] = "LDSR-S2"
+            result["scale"] = 4
+            result["fallback"] = True
+            result["fallback_reason"] = (
+                f"ESA OpenSR unavailable ({e}); enhanced with pretrained DSen2 ×2 + bicubic ×2"
+            )
+            # Report the whole chain's wall time, not just the bicubic leg.
+            result["inference_time_sec"] = time.time() - start
+            return result
+        finally:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)

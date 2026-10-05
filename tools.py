@@ -64,20 +64,32 @@ def compute_metrics(sr_path: str, bicubic_path: str) -> dict:
                 resampling=Resampling.cubic,
             ).astype(np.float32)
 
-        # Normalise to [0, 1]
-        sr_norm  = sr_data  / sr_data.max()  if sr_data.max()  > 0 else sr_data
-        bic_norm = bic_data / bic_data.max() if bic_data.max() > 0 else bic_data
+        # Normalise BOTH arrays by the same shared max so comparing identical
+        # outputs doesn't yield inf PSNR (e.g. Bicubic Baseline vs itself).
+        shared_max = max(sr_data.max(), bic_data.max())
+        if shared_max > 0:
+            sr_norm  = sr_data  / shared_max
+            bic_norm = bic_data / shared_max
+        else:
+            sr_norm  = sr_data
+            bic_norm = bic_data
 
         # Use first 3 bands for perceptual metrics
         sr_rgb  = np.moveaxis(sr_norm[:3],  0, -1)
         bic_rgb = np.moveaxis(bic_norm[:3], 0, -1)
 
-        psnr = peak_signal_noise_ratio(bic_rgb, sr_rgb, data_range=1.0)
-        ssim = structural_similarity(
+        psnr_raw = peak_signal_noise_ratio(bic_rgb, sr_rgb, data_range=1.0)
+        ssim_raw = structural_similarity(
             bic_rgb, sr_rgb,
             multichannel=True, data_range=1.0, channel_axis=-1
         )
-        return {"psnr": round(float(psnr), 2), "ssim": round(float(ssim), 4)}
+
+        # Clamp non-finite values (inf/nan) to None so JSON serialization works.
+        def _safe(v: float):
+            import math
+            return round(float(v), 4) if math.isfinite(v) else None
+
+        return {"psnr": _safe(psnr_raw), "ssim": _safe(ssim_raw)}
 
     except Exception as e:
         print(f"[tools] Metrics computation failed: {e}")
